@@ -8,7 +8,7 @@ import uuid
 
 def face_confidence(face_distance, threshold=0.6):
     """
-    Converte a distância facial em uma porcentagem de confiança.
+    Converts face distance into a confidence percentage.
     """
     if face_distance > threshold:
         return f"0%"
@@ -25,11 +25,11 @@ class FaceRecognition:
 
     def load_known_faces(self):
         """
-        Carrega e codifica os rostos conhecidos a partir da pasta `faces`.
+        Loads and encodes known faces from the 'faces' folder.
         """
         faces_path = "faces"
         if not os.path.exists(faces_path):
-            print(f"Pasta '{faces_path}' não encontrada. Certifique-se de que ela exista.")
+            print(f"Folder '{faces_path}' not found. Please ensure it exists.")
             return
 
         for image_name in os.listdir(faces_path):
@@ -38,188 +38,195 @@ class FaceRecognition:
                 image = face_recognition.load_image_file(image_path)
                 face_encodings = face_recognition.face_encodings(image)
                 if not face_encodings:
-                    print(f"Nenhum rosto detectado em {image_name}. Pulando...")
+                    print(f"No face detected in {image_name}. Skipping...")
                     continue
 
                 self.known_face_encodings.append(face_encodings[0])
                 self.known_face_names.append(os.path.splitext(image_name)[0])
             except Exception as e:
-                print(f"Erro ao processar a imagem {image_name}: {e}")
+                print(f"Error processing image {image_name}: {e}")
 
-        print(f"Rostos conhecidos carregados: {self.known_face_names}")
+        print(f"Known faces loaded: {self.known_face_names}")
 
     def save_new_face(self, frame, location):
         """
-        Salva a imagem do rosto desconhecido na pasta `faces`.
+        Saves the image of an unknown face to the 'faces' folder.
         """
-        # Mapeia as coordenadas do rosto para o tamanho original
+        # Map face coordinates to original size
         top, right, bottom, left = location
         top *= 4
         right *= 4
         bottom *= 4
         left *= 4
 
-        # Gera um nome único para o arquivo
+        # Generate a unique filename
         filename = f"new_face_{uuid.uuid4().hex}.jpg"
         filepath = os.path.join("faces", filename)
 
-        # Extrai a região do rosto no tamanho original
+        # Extract face region in original size
         face_image = frame[top:bottom, left:right]
 
-        # Salva o rosto na pasta `faces`
+        # Save the face to the 'faces' folder
         cv2.imwrite(filepath, face_image)
-        print(f"Rosto desconhecido salvo como {filename}.")
+        print(f"Unknown face saved as {filename}.")
 
-    def train_faces(self):
+    def trainer_faces(self, stop_event):
         """
-        Realiza o treinamento sempre que novos dados são adicionados.
-        """
-
-        while True:
-            print("Aguardando novos dados para treinar...")
-            self.new_data_event.wait()  # Espera até que novos dados sejam sinalizados
-            self.new_data_event.clear()
-
-            print("Treinando com novos dados...")
-            self.load_known_faces()  # Recarrega os rostos conhecidos
-            time.sleep(1)  # Simula tempo de processamento
-  
-        
-    def trainer_faces(self):
-        """
-        Detecta e reconhece rostos em tempo real usando a câmera 0.
+        Detects and recognizes faces in real-time using camera 0.
         """
         video_capture = cv2.VideoCapture(0)
 
         if not video_capture.isOpened():
-            print(f"Erro ao acessar a câmera {0}.")
+            print(f"Error accessing camera {0}.")
             return
 
-        while True:
-            ret, frame = video_capture.read()
-            if not ret:
-                print(f"Erro ao capturar o frame da câmera {0}.")
-                break
+        try:
+            while not stop_event.is_set():
+                ret, frame = video_capture.read()
+                if not ret:
+                    print(f"Error capturing frame from camera {0}.")
+                    break
 
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-            rgb_small_frame = small_frame[:, :, ::-1]
-            rgb_small_frame = np.array(rgb_small_frame, dtype=np.uint8)
+                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                rgb_small_frame = small_frame[:, :, ::-1]
+                rgb_small_frame = np.array(rgb_small_frame, dtype=np.uint8)
 
-            face_locations = face_recognition.face_locations(rgb_small_frame)
-            try:
-                face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
-            except Exception as e:
-                print(f"Erro ao calcular encodings: {e}")
-                continue
+                face_locations = face_recognition.face_locations(rgb_small_frame)
+                try:
+                    face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+                except Exception as e:
+                    print(f"Error calculating encodings: {e}")
+                    continue
 
-            for face_encoding, location in zip(face_encodings, face_locations):
-                matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
-                face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
+                for face_encoding, location in zip(face_encodings, face_locations):
+                    matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
+                    face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
 
-                if len(face_distances) > 0:
-                    best_match_index = np.argmin(face_distances)
-                    if matches[best_match_index]:
-                        print(f"Rosto reconhecido: {self.known_face_names[best_match_index]}")
-                    else:
-                        print("Rosto desconhecido detectado.")
-                        # Salvar o rosto desconhecido
-                        self.save_new_face(frame, location)
+                    if len(face_distances) > 0:
+                        best_match_index = np.argmin(face_distances)
+                        if matches[best_match_index]:
+                            print(f"Recognized face: {self.known_face_names[best_match_index]}")
+                        else:
+                            print("Unknown face detected.")
+                            # Save the unknown face
+                            self.save_new_face(frame, location)
+                            # Set the stop event and exit immediately
+                            stop_event.set()
+                            return
 
-                        # Sinalizar que há novos dados
-                        #self.new_data_event.set()
+        finally:
+            # Release camera resources
+            video_capture.release()
+            print(f"Camera {0} released.")
 
-            cv2.imshow(f"Camera {0} - Face Recognition", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        video_capture.release()
-        cv2.destroyAllWindows()
-        
-    def recognize_faces(self):
+    def recognize_faces(self, stop_event):
         """
-        Detecta e reconhece rostos em tempo real usando a câmera especificada.
+        Detects and recognizes faces in real-time using the specified camera.
         """
         video_capture = cv2.VideoCapture(1)
 
         if not video_capture.isOpened():
-            print(f"Erro ao acessar a câmera {1}.")
+            print(f"Error accessing camera {1}.")
             return
 
-        while True:
-            ret, frame = video_capture.read()
-            if not ret:
-                print(f"Erro ao capturar o frame da câmera {1}.")
-                break
+        try:
+            while not stop_event.is_set():
+                ret, frame = video_capture.read()
+                if not ret:
+                    print(f"Error capturing frame from camera {1}.")
+                    break
 
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-            rgb_small_frame = small_frame[:, :, ::-1]
-            rgb_small_frame = np.array(rgb_small_frame, dtype=np.uint8)
+                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                rgb_small_frame = small_frame[:, :, ::-1]
+                rgb_small_frame = np.array(rgb_small_frame, dtype=np.uint8)
 
-            face_locations = face_recognition.face_locations(rgb_small_frame)
-            try:
-                face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
-            except Exception as e:
-                print(f"Erro ao calcular encodings: {e}")
-                continue
+                face_locations = face_recognition.face_locations(rgb_small_frame)
+                try:
+                    face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+                except Exception as e:
+                    print(f"Error calculating encodings: {e}")
+                    continue
 
-            face_names = []
+                face_names = []
 
-            for face_encoding in face_encodings:
-                matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
-                face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
+                for face_encoding in face_encodings:
+                    matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
+                    face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
 
-                if len(face_distances) > 0:
-                    best_match_index = np.argmin(face_distances)
-                    if matches[best_match_index]:
-                        name = self.known_face_names[best_match_index]
-                        confidence = face_confidence(face_distances[best_match_index])
-                        face_names.append(f"{name} ({confidence})")
+                    if len(face_distances) > 0:
+                        best_match_index = np.argmin(face_distances)
+                        if matches[best_match_index]:
+                            name = self.known_face_names[best_match_index]
+                            confidence = face_confidence(face_distances[best_match_index])
+                            face_names.append(f"{name} ({confidence})")
+                        else:
+                            face_names.append("Unknown (0%)")
                     else:
-                        face_names.append("Desconhecido (0%)")
-                else:
-                    face_names.append("Desconhecido (0%)")
+                        face_names.append("Unknown (0%)")
 
-            for (top, right, bottom, left), name in zip(face_locations, face_names):
-                top *= 4
-                right *= 4
-                bottom *= 4
-                left *= 4
+                for (top, right, bottom, left), name in zip(face_locations, face_names):
+                    top *= 4
+                    right *= 4
+                    bottom *= 4
+                    left *= 4
 
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-                cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
-                font = cv2.FONT_HERSHEY_DUPLEX
-                cv2.putText(frame, name, (left + 6, bottom - 6), font, 0.5, (255, 255, 255), 1)
+                    cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
+                    cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
+                    font = cv2.FONT_HERSHEY_DUPLEX
+                    cv2.putText(frame, name, (left + 6, bottom - 6), font, 0.5, (255, 255, 255), 1)
 
-            cv2.imshow(f"Camera {1} - Face Recognition", frame)
+                cv2.imshow(f"Camera {1} - Face Recognition", frame)
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    stop_event.set()
+                    break
+        finally:
+            video_capture.release()
+            print(f"Camera {1} released.")
 
-        video_capture.release()
-        cv2.destroyAllWindows()
+def start_recognition(fr, stop_event):
+    fr.recognize_faces(stop_event)
 
-def start_recognition(fr):
-    fr.recognize_faces()
-    
-def start_trainer(fr):
-    fr.trainer_faces()
-    
-def train_faces(fr):    
-    fr.train_faces()
+def start_trainer(fr, stop_event):
+    fr.trainer_faces(stop_event)
+
+threads = []
+stop_event = threading.Event()
+
+def start_threads(fr):
+    global threads, stop_event
+    stop_event.clear()  # Reset the stop event
+
+    thread1 = threading.Thread(target=start_recognition, args=(fr, stop_event))
+    thread2 = threading.Thread(target=start_trainer, args=(fr, stop_event))
+
+    threads = [thread1, thread2]
+    for thread in threads:
+        thread.start()
+
+def stop_threads():
+    global threads, stop_event
+    stop_event.set()  # Signal all threads to stop
+    for thread in threads:
+        if thread.is_alive():
+            thread.join()  # Wait until the thread terminates
+    threads = []  # Clear the thread list
+
+    # Call cv2.destroyAllWindows() once after all threads have stopped
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    # Criar threads para duas câmeras
-    fr = FaceRecognition()
-    
-    thread1 = threading.Thread(target=start_recognition, args=(fr,))
-    thread2 = threading.Thread(target=start_trainer, args=(fr,))
-    thread3 = threading.Thread(target=train_faces, args=(fr,))
+    while True:
+        print("Starting threads...")
+        fr = FaceRecognition()
+        start_threads(fr)
 
-    thread1.start()
-    thread2.start()
-    thread3.start()
+        # Wait until the stop event is set
+        stop_event.wait()
 
-    thread1.join()
-    thread2.join()
-    thread3.join()
+        print("Stopping threads...")
+        stop_threads()
+
+        # Reset the stop event for the next cycle
+        stop_event.clear()
+        print("Threads successfully restarted.")
