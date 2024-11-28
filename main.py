@@ -5,6 +5,7 @@ import os
 import threading
 import time
 import uuid
+import time
 
 def face_confidence(face_distance, threshold=0.6):
     """
@@ -109,10 +110,10 @@ class FaceRecognition:
                         else:
                             print("Unknown face detected.")
                             # Save the unknown face
-                            self.save_new_face(frame, location)
+                           # self.save_new_face(frame, location)
                             # Set the stop event and exit immediately
-                            stop_event.set()
-                            return
+                            #stop_event.set()
+                            #return
 
         finally:
             # Release camera resources
@@ -120,9 +121,9 @@ class FaceRecognition:
             print(f"Camera {0} released.")
 
     def recognize_faces(self, stop_event):
-        """
-        Detects and recognizes faces in real-time using the specified camera.
-        """
+        
+        unknown_detections = []
+
         video_capture = cv2.VideoCapture(1)
 
         if not video_capture.isOpened():
@@ -156,13 +157,26 @@ class FaceRecognition:
                     if len(face_distances) > 0:
                         best_match_index = np.argmin(face_distances)
                         if matches[best_match_index]:
-                            name = self.known_face_names[best_match_index]
+                            name = "Autorizado"  # self.known_face_names[best_match_index]
                             confidence = face_confidence(face_distances[best_match_index])
                             face_names.append(f"{name} ({confidence})")
                         else:
                             face_names.append("Unknown (0%)")
                     else:
                         face_names.append("Unknown (0%)")
+
+                # Process unknown detections
+                current_time = time.time()
+                for name in face_names:
+                    if "Unknown" in name:
+                        unknown_detections.append(current_time)
+
+                # Remove timestamps older than 10 seconds
+                unknown_detections = [t for t in unknown_detections if current_time - t <= 10]
+
+                if len(unknown_detections) >= 5:
+                    print("DESCONHECIDO")
+                    unknown_detections = []
 
                 for (top, right, bottom, left), name in zip(face_locations, face_names):
                     top *= 4
@@ -183,6 +197,7 @@ class FaceRecognition:
         finally:
             video_capture.release()
             print(f"Camera {1} released.")
+
 
 def start_recognition(fr, stop_event):
     fr.recognize_faces(stop_event)
